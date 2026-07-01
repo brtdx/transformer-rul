@@ -37,21 +37,24 @@ class EarlyStopping:
 
 
 def split_train_val(train_loader, val_fraction=0.2, seed=42):
-    """Carve a validation subset from the train loader's dataset for early stopping.
+    """Per-cell chronological block split for early stopping (Faz B1).
 
-    Walks all windows, collects indices, then splits: last `val_fraction` of indices
-    are used as validation. This is acceptable for early-stopping model selection only —
-    final reported metrics are computed on the held-out cell (LOCO test), NOT here.
+    See root trainer.split_train_val for rationale (temporal leakage fix).
     """
-    n = len(train_loader.dataset)
-    idx = np.arange(n)
-    n_val = max(int(n * val_fraction), 1)
-    rng = np.random.default_rng(seed)
-    rng.shuffle(idx)
-    val_idx = idx[:n_val]
-    train_idx = idx[n_val:]
-    X = train_loader.dataset.X
-    y = train_loader.dataset.y
+    ds = train_loader.dataset
+    X = ds.X
+    y = ds.y
+    boundaries = getattr(ds, 'cell_boundaries', None)
+    if boundaries is None:
+        boundaries = [(0, len(ds))]
+    train_idx, val_idx = [], []
+    for start, end in boundaries:
+        block_len = end - start
+        n_val = max(int(block_len * val_fraction), 1)
+        val_idx.extend(range(end - n_val, end))
+        train_idx.extend(range(start, end - n_val))
+    train_idx = np.array(train_idx)
+    val_idx = np.array(val_idx)
     return (torch.utils.data.TensorDataset(X[train_idx], y[train_idx]),
             torch.utils.data.TensorDataset(X[val_idx], y[val_idx]))
 

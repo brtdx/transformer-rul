@@ -66,7 +66,14 @@ def compute_fold_stats(train_cells_data):
     pooled = np.concatenate(Xs, axis=0)
     mean = pooled.mean(axis=0)
     std = pooled.std(axis=0)
-    std[std < 1e-6] = 1.0  # avoid div-by-zero for constant features (e.g., AhThroughput on non-Ch3)
+    std[std < 1e-6] = 1.0  # sabit-ama-real kolonlar için div-by-zero koruması (std=0 → 1.0)
+    # Dead (all-NaN-train) kolon güvenliği: norm_stats.npz NaN içermesin.
+    # NaN mean/std → 0: zscore (X-0)/0=inf → nan_to_num → 0 (mevcut davranış birebir korunur,
+    # hem train hem test dead kolonu 0'a düşer; model "dead feature" öğrenir, OOD engellenir).
+    # Bazen: dead kolonlar için std guard NaN<1e-6=False atlar, std NaN kalır → nan_to_num std=0.
+    # Gerçek sabit kolonlar için std=0 → guard 1.0'a yükseltir (NaN olmayan, gerçek 0).
+    mean = np.nan_to_num(mean, nan=0.0)
+    std  = np.nan_to_num(std,  nan=0.0)
     return mean.astype(np.float32), std.astype(np.float32)
 
 
@@ -121,9 +128,14 @@ def build_full_trace(X_z, SoH, L=WINDOW, horizons=HORIZONS):
 
 
 class CycleWindowDataset(Dataset):
-    def __init__(self, X_windows, y_windows):
+    def __init__(self, X_windows, y_windows, cell_boundaries=None):
         self.X = torch.from_numpy(X_windows)
         self.y = torch.from_numpy(y_windows)
+        # Per-cell contiguous index ranges [(start, end), ...] in chronological
+        # order. Set by make_fold_loaders so split_train_val can carve a
+        # per-cell chronological val block and avoid temporal leakage between
+        # stride-1 sliding windows (Faz B1).
+        self.cell_boundaries = cell_boundaries
 
     def __len__(self):
         return len(self.X)
@@ -138,23 +150,22 @@ def make_fold_loaders(test_cell_id, batch=64, features_path=FEATURES_PATH):
     train_ids = [c for c in CELL_IDS if c != test_cell_id]
     mean, std = compute_fold_stats({c: data[c] for c in train_ids})
 
-    # ---- Train: concat windows from all train cells ----
+    # ---- Train: concat windows from all train cells (chronological, no shuffle) ----
+    # Per-cell block boundaries recorded for leak-safe val split (Faz B1).
     X_tr_all, y_tr_all = [], []
+    boundaries = []
+    offset = 0
     for cid in train_ids:
         Xz = zscore(data[cid][0], mean, std)
         Xw, yw = build_windows(Xz, data[cid][1])
         X_tr_all.append(Xw)
         y_tr_all.append(yw)
+        boundaries.append((offset, offset + len(Xw)))
+        offset += len(Xw)
     X_train = np.concatenate(X_tr_all, axis=0)
     y_train = np.concatenate(y_tr_all, axis=0)
 
-    # Shuffle once (seeded) for training
-    rng = np.random.default_rng(SEED)
-    perm = rng.permutation(len(X_train))
-    X_train = X_train[perm]
-    y_train = y_train[perm]
-
-    train_ds = CycleWindowDataset(X_train, y_train)
+    train_ds = CycleWindowDataset(X_train, y_train, cell_boundaries=boundaries)
     train_loader = DataLoader(train_ds, batch_size=batch, shuffle=True, drop_last=False)
 
     # ---- Test: keep per-cycle (un-batched), full trajectory, anchored windows ----

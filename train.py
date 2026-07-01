@@ -38,7 +38,7 @@ from data.dataset import (CELL_IDS, HORIZONS, WINDOW, make_fold_loaders,
                           make_test_prediction_pack)
 from model.trainer import train_one_fold
 
-RESULTS = Path('/home/bbb/Desktop/rul/results')
+RESULTS = Path('/home/bbb/Desktop/rul/results') / 'std'
 RESULTS.mkdir(parents=True, exist_ok=True)
 DEVICE = 'cpu'
 EOL_SOH = 80.0   # original SoH scale (0-100%)
@@ -65,7 +65,10 @@ def predict_test_pack(model, pack, device='cpu'):
         for i in range(0, len(X), 128):
             pred = model(X[i:i + 128]).cpu().numpy()  # (b, 3) normalized
             preds.append(pred)
-    return np.concatenate(preds, axis=0)  # (N_anchors, 3) in [0,1]
+    out = np.concatenate(preds, axis=0)  # (N_anchors, 3)
+    # SoH fiziksel sınır [0,1]: sigmoid yerine inference-only clamp.
+    # Eğitim gradyanı etkilenmez (model head'leri dokunulmadı) → re-train gerekmez.
+    return np.clip(out, 0.0, 1.0)
 
 
 def derive_rul_from_soh(soh_pred_norm, threshold_norm=EOL_SOH_NORM):
@@ -73,9 +76,9 @@ def derive_rul_from_soh(soh_pred_norm, threshold_norm=EOL_SOH_NORM):
     until SoH falls below threshold.
 
     If the predicted trajectory crosses threshold within available data → direct step count.
-    If it never crosses → linear extrapolation using the LAST 30 points (most recent trend).
-    Extrapolations beyond 3× remaining data are kept (trust the fit) but very large values
-    indicate the model not capturing the degradation rate.
+    If it never crosses → extrapolation (LINEER + ÜSTEL fit'lerden pesimistik olanı).
+    Batarya degradation EOL'da hızlanan (knee) üstel eğri → lineer iyimser kalır,
+    min(rul_lin, rul_exp) güvenli tarafta (under-estimate RUL).
     """
     n = len(soh_pred_norm)
     rul = np.full(n, np.nan, dtype=np.float32)
@@ -90,12 +93,28 @@ def derive_rul_from_soh(soh_pred_norm, threshold_norm=EOL_SOH_NORM):
             if len(future) >= extrap_win:
                 recent = future[-extrap_win:]
                 x = np.arange(len(recent), dtype=np.float32)
-                slope, intercept = np.polyfit(x, recent, 1)
-                if slope < -1e-8:
-                    x_cross = (threshold_norm - intercept) / slope
+                # Lineer fit: SoH = a1·x + b1
+                slope_lin, intercept_lin = np.polyfit(x, recent, 1)
+                rul_lin = np.nan
+                if slope_lin < -1e-8:
+                    x_cross = (threshold_norm - intercept_lin) / slope_lin
                     offset = len(future) - extrap_win + x_cross
                     if offset > 0:
-                        rul[i] = float(offset)
+                        rul_lin = float(offset)
+                # Üstel fit (log-lineer): log(SoH)=a2·x+b2 → SoH=exp(b2)·exp(a2·x)
+                rul_exp = np.nan
+                if np.all(recent > 1e-4):
+                    log_recent = np.log(recent)
+                    slope_exp, intercept_exp = np.polyfit(x, log_recent, 1)
+                    if slope_exp < -1e-8:
+                        x_cross = (np.log(threshold_norm) - intercept_exp) / slope_exp
+                        offset = len(future) - extrap_win + x_cross
+                        if offset > 0:
+                            rul_exp = float(offset)
+                # Pesimistik (güvenli) RUL: min(rul_lin, rul_exp)
+                candidates = [v for v in (rul_lin, rul_exp) if not np.isnan(v)]
+                if candidates:
+                    rul[i] = float(min(candidates))
     return rul
 
 
