@@ -66,12 +66,12 @@ def compute_fold_stats(train_cells_data):
     pooled = np.concatenate(Xs, axis=0)
     mean = pooled.mean(axis=0)
     std = pooled.std(axis=0)
-    std[std < 1e-6] = 1.0  # sabit-ama-real kolonlar için div-by-zero koruması (std=0 → 1.0)
-    # Dead (all-NaN-train) kolon güvenliği: norm_stats.npz NaN içermesin.
-    # NaN mean/std → 0: zscore (X-0)/0=inf → nan_to_num → 0 (mevcut davranış birebir korunur,
-    # hem train hem test dead kolonu 0'a düşer; model "dead feature" öğrenir, OOD engellenir).
-    # Bazen: dead kolonlar için std guard NaN<1e-6=False atlar, std NaN kalır → nan_to_num std=0.
-    # Gerçek sabit kolonlar için std=0 → guard 1.0'a yükseltir (NaN olmayan, gerçek 0).
+    std[std < 1e-6] = 1.0  # div-by-zero guard for constant-but-real columns (std=0 -> 1.0)
+    # Dead (all-NaN-train) column safety: ensure norm_stats.npz contains no NaN.
+    # NaN mean/std -> 0: zscore (X-0)/0=inf -> nan_to_num -> 0 (existing behaviour preserved;
+    # both train and test dead columns collapse to 0; model learns "dead feature", OOD prevented).
+    # Edge case: for dead columns, std guard NaN<1e-6 is False, std stays NaN -> nan_to_num std=0.
+    # For truly constant columns, std=0 -> guard raises to 1.0 (non-NaN, real zero).
     mean = np.nan_to_num(mean, nan=0.0)
     std  = np.nan_to_num(std,  nan=0.0)
     return mean.astype(np.float32), std.astype(np.float32)

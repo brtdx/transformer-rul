@@ -66,8 +66,8 @@ def predict_test_pack(model, pack, device='cpu'):
             pred = model(X[i:i + 128]).cpu().numpy()  # (b, 3) normalized
             preds.append(pred)
     out = np.concatenate(preds, axis=0)  # (N_anchors, 3)
-    # SoH fiziksel sınır [0,1]: sigmoid yerine inference-only clamp.
-    # Eğitim gradyanı etkilenmez (model head'leri dokunulmadı) → re-train gerekmez.
+    # SoH physical bounds [0,1]: inference-only clamp instead of sigmoid.
+    # Training gradients unaffected (model heads untouched) -> no re-train needed.
     return np.clip(out, 0.0, 1.0)
 
 
@@ -76,9 +76,9 @@ def derive_rul_from_soh(soh_pred_norm, threshold_norm=EOL_SOH_NORM):
     until SoH falls below threshold.
 
     If the predicted trajectory crosses threshold within available data → direct step count.
-    If it never crosses → extrapolation (LINEER + ÜSTEL fit'lerden pesimistik olanı).
-    Batarya degradation EOL'da hızlanan (knee) üstel eğri → lineer iyimser kalır,
-    min(rul_lin, rul_exp) güvenli tarafta (under-estimate RUL).
+    If it never crosses -> extrapolation (linear + exponential fit, take the pessimistic one).
+    Battery degradation accelerates near EOL (knee point): exponential curve captures this,
+    linear fit stays optimistic; min(rul_lin, rul_exp) takes the safe side (under-estimate RUL).
     """
     n = len(soh_pred_norm)
     rul = np.full(n, np.nan, dtype=np.float32)
@@ -93,7 +93,7 @@ def derive_rul_from_soh(soh_pred_norm, threshold_norm=EOL_SOH_NORM):
             if len(future) >= extrap_win:
                 recent = future[-extrap_win:]
                 x = np.arange(len(recent), dtype=np.float32)
-                # Lineer fit: SoH = a1·x + b1
+                # Linear fit: SoH = a1*x + b1
                 slope_lin, intercept_lin = np.polyfit(x, recent, 1)
                 rul_lin = np.nan
                 if slope_lin < -1e-8:
@@ -101,7 +101,7 @@ def derive_rul_from_soh(soh_pred_norm, threshold_norm=EOL_SOH_NORM):
                     offset = len(future) - extrap_win + x_cross
                     if offset > 0:
                         rul_lin = float(offset)
-                # Üstel fit (log-lineer): log(SoH)=a2·x+b2 → SoH=exp(b2)·exp(a2·x)
+                # Exponential fit (log-linear): log(SoH)=a2*x+b2 -> SoH=exp(b2)*exp(a2*x)
                 rul_exp = np.nan
                 if np.all(recent > 1e-4):
                     log_recent = np.log(recent)
@@ -111,7 +111,7 @@ def derive_rul_from_soh(soh_pred_norm, threshold_norm=EOL_SOH_NORM):
                         offset = len(future) - extrap_win + x_cross
                         if offset > 0:
                             rul_exp = float(offset)
-                # Pesimistik (güvenli) RUL: min(rul_lin, rul_exp)
+                # Pessimistic (safe) RUL: min(rul_lin, rul_exp)
                 candidates = [v for v in (rul_lin, rul_exp) if not np.isnan(v)]
                 if candidates:
                     rul[i] = float(min(candidates))
