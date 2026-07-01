@@ -20,8 +20,9 @@ import h5py
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
+from pathlib import Path
 
-FEATURES_PATH = '/home/bbb/Desktop/rul/features/features_all_cells.hdf5'
+FEATURES_PATH = str(Path(__file__).parent.parent.parent / 'features_all_cells.hdf5')
 CELL_IDS = ['cell_1', 'cell_2', 'cell_3', 'cell_6']
 HORIZONS = [5, 10, 20]
 WINDOW = 20

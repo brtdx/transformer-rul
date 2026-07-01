@@ -30,7 +30,7 @@ CELLS = [
     ('cell_6', '/home/bbb/Desktop/cell1/cell6/Channel_6.duckdb', 12.0, None),
 ]
 
-OUT = Path('/home/bbb/Desktop/rul/features/features_all_cells.hdf5')
+OUT = Path(__file__).parent.parent.parent / 'features_all_cells.hdf5'
 
 
 def load_cycle(name, db_path):

@@ -32,7 +32,7 @@ import matplotlib
 matplotlib.use('Agg')  # headless
 import matplotlib.pyplot as plt
 
-sys.path.insert(0, '/home/bbb/Desktop/rul')
+sys.path.insert(0, str(Path(__file__).parent))
 
 from data.dataset import (CELL_IDS, HORIZONS, WINDOW, make_fold_loaders,
                           make_test_prediction_pack)

@@ -6,11 +6,9 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from model.transformer import RULTransformer, weighted_huber_loss
-from model.itransformer import iTransformerRUL
 
 MODEL_REGISTRY = {
     'std': RULTransformer,
-    'itransformer': iTransformerRUL,
 }
 
 
@@ -75,7 +73,7 @@ def train_one_fold(train_loader, device='cpu',
     lookback = sample_x.shape[1]
     model_kwargs = {**model_kwargs, 'n_features': n_features}
     ffn_dim = model_kwargs.get('ffn_dim', 2 * model_kwargs.get('d_model', 32))
-    model_cls = MODEL_REGISTRY.get(model_name, RULTransformer)
+    model_cls = MODEL_REGISTRY[model_name]  # 'std' or 'itransformer' must be in registry
     extra = {}
     if model_name == 'itransformer':
         extra['lookback'] = lookback
