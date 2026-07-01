@@ -1,5 +1,22 @@
 #!/usr/bin/env python3
-"""Transformer encoder model for cycle-level RUL prediction (multi-horizon regression)."""
+"""Transformer encoder model for cycle-level RUL prediction (multi-horizon regression).
+
+Architecture reference: Vaswani et al., "Attention Is All You Need", NeurIPS 2017.
+arXiv:1706.03762.
+
+This is a PyTorch reimplementation of the original Transformer ENCODER (decoder is
+omitted since the task is regression, not seq2seq generation). No code is ported from
+the original paper — the paper does not include source code — this implementation
+is written from scratch following the architectural description.
+
+Adaptations for battery RUL regression:
+- Encoder-only (no decoder)
+- Token = cycle feature vector (15-dim) projected to d_model
+- Sinusoidal positional encoding (exact original formula)
+- Multi-horizon regression heads (h+5, h+10, h+20)
+- Pre-LN + GELU (modern stable variant)
+- Weighted HuberLoss for multi-horizon training
+"""
 import math
 import torch
 import torch.nn as nn
