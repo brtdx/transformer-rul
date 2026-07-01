@@ -4,7 +4,7 @@ Cycle-level RUL (Remaining Useful Life) prediction for lithium-ion batteries usi
 
 ## Overview
 
-This repository contains a PyTorch implementation of the standard Transformer **encoder** architecture adapted for cycle-level SoH regression and RUL estimation on a 4-cell battery aging dataset (Ch1/Ch2/Ch3/Ch6, 20°C climate chamber).
+This repository contains a PyTorch implementation of the standard Transformer **encoder** architecture adapted for cycle-level SoH regression and RUL estimation on a 4-cell battery aging dataset (Ch1/Ch2/Ch3/Ch6).
 
 **Key idea:** each cycle in the lookback window is a token. Multi-head self-attention captures temporal dependencies across cycles. This is the encoder-only Transformer applied to time-series regression.
 
